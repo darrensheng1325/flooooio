@@ -1,7 +1,7 @@
 import type { EventMap } from "strict-event-emitter";
 import { Emitter } from "strict-event-emitter";
 import type { StaticAdheredClientboundHandlers } from "../Websocket/Packet/PacketClientbound";
-import { type Components, renderPossibleComponents, OBSTRUCTION_AFFECTABLE, hasClickableListeners, hasInteractiveListeners, hasOnScrollListener } from "./Layout/Components/Component";
+import { type Components, renderPossibleComponents, OBSTRUCTION_AFFECTABLE, hasClickableListeners, hasInteractiveListeners, hasOnScrollListener, hasOnDropListener } from "./Layout/Components/Component";
 import { BLACKLISTED } from "./Layout/Extensions/ExtensionInlineRendering";
 import type { AnyStaticContainer } from "./Layout/Components/WellKnown/Container";
 import { AbstractStaticContainer } from "./Layout/Components/WellKnown/Container";
@@ -331,7 +331,8 @@ export default abstract class AbstractUI extends Emitter<ComponentCompatibleUnco
             (
                 hasInteractiveListeners(targetComponent) ||
                 hasClickableListeners(targetComponent) ||
-                hasOnScrollListener(targetComponent)
+                hasOnScrollListener(targetComponent) ||
+                hasOnDropListener(targetComponent)
             );
     }
 
@@ -339,6 +340,21 @@ export default abstract class AbstractUI extends Emitter<ComponentCompatibleUnco
         return this.isComponentInteractable(targetComponent) &&
             this.overlapsComponent(targetComponent, x, y) &&
             !this.isComponentObstructed(targetComponent, x, y);
+    }
+
+    /**
+     * Find a component at the given position. Used for drag-and-drop.
+     */
+    public findComponentAtPosition(x: number, y: number, componentType?: Function): Components | null {
+        for (const component of this.components) {
+            if (componentType && !(component instanceof componentType)) {
+                continue;
+            }
+            if (this.isComponentInteractableAtPosition(component, x, y)) {
+                return component;
+            }
+        }
+        return null;
     }
 
     private isChildComponent(component: Components): boolean {
@@ -455,6 +471,15 @@ export default abstract class AbstractUI extends Emitter<ComponentCompatibleUnco
         this.broadcastUnconditionalEvent("onMouseUp", event);
 
         if (event.button === 0) {
+            // Check for dragging icons first (they need onUp even if not at mouse position)
+            const draggingIcon = this.findDraggingIcon();
+            if (draggingIcon) {
+                draggingIcon.emit("onUp");
+                // Don't emit onClick for drag operations
+                this.clickedComponent = null;
+                return;
+            }
+
             if (this.clickedComponent) {
                 const { mouseX, mouseY } = this;
 
@@ -466,6 +491,18 @@ export default abstract class AbstractUI extends Emitter<ComponentCompatibleUnco
                 this.clickedComponent = null;
             }
         }
+    }
+
+    /**
+     * Find a component that is currently being dragged.
+     */
+    private findDraggingIcon(): Components | null {
+        for (const component of this.components) {
+            if ((component as any).isDragging === true) {
+                return component;
+            }
+        }
+        return null;
     }
 
     private handleMouseMove(event: MouseEvent): void {

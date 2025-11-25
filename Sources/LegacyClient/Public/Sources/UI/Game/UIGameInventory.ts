@@ -8,6 +8,7 @@ import { Centering } from "../Layout/Extensions/ExtensionCentering";
 export default class UIGameInventory extends StaticVContainer {
     constructor(
         layoutOptions: MaybePointerLike<AutomaticallySizedLayoutOptions>,
+        onSwapPetal?: (index: number) => void,
     ) {
         super(
             layoutOptions,
@@ -19,16 +20,29 @@ export default class UIGameInventory extends StaticVContainer {
             const row = new (Centering(StaticHContainer))({});
 
             for (let i = 0; i < count; i++) {
-                row.addChild(
-                    isBottom
-                        ? new StaticVContainer({}, false)
-                            .addChildren(
-                                new (Centering(UIPetalPlaceholder))({}, placeholderSize),
-                                new StaticSpace(0, 5),
-                                new (Centering(StaticText))({}, `[${(i + 1) % 10}]`, 8),
-                            )
-                        : new UIPetalPlaceholder({}, placeholderSize),
-                );
+                if (isBottom) {
+                    // Bottom row: clickable placeholders for equipping petals
+                    const placeholder = new (Centering(UIPetalPlaceholder))({}, placeholderSize);
+                    
+                    // Add click handler to swap petal
+                    if (onSwapPetal) {
+                        placeholder.on("onClick", () => {
+                            onSwapPetal(i);
+                        });
+                    }
+                    
+                    const container = new StaticVContainer({}, false)
+                        .addChildren(
+                            placeholder,
+                            new StaticSpace(0, 5),
+                            new (Centering(StaticText))({}, `[${(i + 1) % 10}]`, 8),
+                        );
+                    
+                    row.addChild(container);
+                } else {
+                    // Surface row: non-clickable placeholders
+                    row.addChild(new UIPetalPlaceholder({}, placeholderSize));
+                }
 
                 // Add space if not last placeholder
                 if (i < count - 1) {

@@ -1235,6 +1235,12 @@ export default class UIGame extends AbstractUI {
                 alignFromCenterX: true,
                 invertYCoordinate: true,
             }),
+            (index: number) => {
+                // Don't swap while chatting
+                if (!this.chatInput.isFocused) {
+                    clientWebsocket.packetServerbound.sendWaveSwapPetal(index);
+                }
+            },
         ));
     }
 

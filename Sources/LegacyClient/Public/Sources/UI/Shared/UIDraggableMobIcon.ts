@@ -1,6 +1,10 @@
 import { deltaTime } from "../../../../Application";
 import { RENDERED_LAST } from "../Layout/Components/Component";
 import UIMobIcon from "./UIMobIcon";
+import UIPetalPlaceholder from "./UIPetalPlaceholder";
+
+// Static reference to track the currently dragging icon
+let currentlyDraggingIcon: UIDraggableMobIcon | null = null;
 
 export default class UIDraggableMobIcon extends UIMobIcon {
     private static readonly DRAGGING_SCALE: number = 1.6;
@@ -19,6 +23,10 @@ export default class UIDraggableMobIcon extends UIMobIcon {
 
     private currentScale: number = 1;
 
+    // Store original position to return to if not dropped
+    private originalX: number = 0;
+    private originalY: number = 0;
+
     constructor(...args: ConstructorParameters<typeof UIMobIcon>) {
         super(...args);
 
@@ -26,6 +34,11 @@ export default class UIDraggableMobIcon extends UIMobIcon {
             this.isLayoutable = false;
 
             this.isDragging = true;
+            currentlyDraggingIcon = this;
+
+            // Store original position
+            this.originalX = this.x;
+            this.originalY = this.y;
 
             this.offsetX = this.context.mouseX - this.x;
             this.offsetY = this.context.mouseY - this.y;
@@ -41,6 +54,21 @@ export default class UIDraggableMobIcon extends UIMobIcon {
             this.wobbleTime = 0;
 
             this[RENDERED_LAST] = false;
+
+            // Check if we're dropping over a placeholder
+            const { mouseX, mouseY } = this.context;
+            const placeholder = this.context.findComponentAtPosition(mouseX, mouseY, UIPetalPlaceholder);
+            if (placeholder) {
+                // Emit drop event on the placeholder
+                placeholder.emit("onDrop", this);
+                // Don't return to original position if dropped successfully
+            } else {
+                // Return to original position if not dropped on a placeholder
+                this.setX(this.originalX);
+                this.setY(this.originalY);
+            }
+
+            currentlyDraggingIcon = null;
         });
 
         this.on("onFocus", () => {

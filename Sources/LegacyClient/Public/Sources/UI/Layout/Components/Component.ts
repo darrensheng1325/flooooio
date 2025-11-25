@@ -181,6 +181,10 @@ export function hasOnScrollListener(component: Components): boolean {
     return component.listenerCount("onScroll") > 0;
 }
 
+export function hasOnDropListener(component: Components): boolean {
+    return component.listenerCount("onDrop") > 0;
+}
+
 // Typing for EventEmitter
 export type ComponentEvents<AdheredEvents extends object> =
     Satisfies<
@@ -199,6 +203,10 @@ export type ComponentEvents<AdheredEvents extends object> =
         & {
             // Event that tell this component is scrolled
             "onScroll": [event: WheelEvent];
+        }
+        & {
+            // Event that tell a draggable item was dropped on this component
+            "onDrop": [draggedIcon: any];
         }
         & typeof INTERACTIVE_EVENTS
         & typeof CLICKABLE_EVENTS
