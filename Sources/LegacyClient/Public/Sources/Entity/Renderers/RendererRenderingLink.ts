@@ -33,23 +33,25 @@ export function renderEntity<T extends Mob | Player>(renderingContext: Rendering
         return;
     }
 
-    // Check if entity is a valid Player or Mob instance
-    if (!(entity instanceof Player) && !(entity instanceof Mob)) {
+    // Check if entity is a valid Player or Mob instance using instanceof
+    // This is more reliable than checking constructor
+    let entityClass: Function;
+    if (entity instanceof Player) {
+        entityClass = Player;
+    } else if (entity instanceof Mob) {
+        entityClass = Mob;
+    } else {
         const entityType = (entity as any).constructor?.name || 'unknown';
-        console.warn(`Invalid entity type: ${entityType}, not a Player or Mob`);
+        const entityId = (entity as any).id;
+        console.warn(`Invalid entity type: ${entityType} (id: ${entityId}), not a Player or Mob - should be removed from game maps`);
+        // Note: We can't remove it here as we don't have access to the game maps
+        // But the validation in UIGame should catch and remove these
         return;
     }
 
-    const entityConstructor = (entity as any).constructor;
-    if (!entityConstructor) {
-        console.warn("Invalid entity: missing constructor");
-        return;
-    }
-
-    const renderer = getRenderer(entityConstructor);
+    const renderer = getRenderer(entityClass);
     if (!renderer) {
-        const entityType = entityConstructor.name || 'unknown';
-        console.warn(`No renderer found for entity type: ${entityType}`);
+        console.warn(`No renderer found for entity class, removing entity`);
         return;
     }
     
@@ -62,7 +64,8 @@ export function renderEntity<T extends Mob | Player>(renderingContext: Rendering
     try {
         renderer.render(renderingContext);
     } catch (error) {
-        console.error(`Error rendering entity ${entity.constructor.name}:`, error);
+        const entityType = (entity as any).constructor?.name || 'unknown';
+        console.error(`Error rendering entity ${entityType}:`, error);
     }
 
     ctx.restore();

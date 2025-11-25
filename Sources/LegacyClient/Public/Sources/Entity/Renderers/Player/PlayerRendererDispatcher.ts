@@ -13,13 +13,23 @@ export default class PlayerRendererDispatcher extends Renderer<Player> {
 
         const { ctx, entity } = context;
 
+        // Validate entity properties
+        if (typeof entity.size !== 'number' || isNaN(entity.size)) {
+            console.warn("Invalid player size, skipping render");
+            return;
+        }
+
         const scale = entity.size / 25;
         ctx.scale(scale, scale);
 
-        if (entity.isDev) {
-            PlayerRendererDispatcher.dev.render(context);
-        } else {
-            PlayerRendererDispatcher.normal.render(context);
+        try {
+            if (entity.isDev) {
+                PlayerRendererDispatcher.dev.render(context);
+            } else {
+                PlayerRendererDispatcher.normal.render(context);
+            }
+        } catch (error) {
+            console.error("Error rendering player:", error);
         }
     }
 }

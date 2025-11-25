@@ -92,7 +92,16 @@ export default class MobRendererDispatcher extends Renderer<Mob> {
         const { entity } = context;
 
         const renderer = MOB_RENDERERS[entity.type];
+        
+        if (!renderer) {
+            console.warn(`No renderer found for mob type: ${entity.type}, skipping render`);
+            return;
+        }
 
-        renderer.render(context);
+        try {
+            renderer.render(context);
+        } catch (error) {
+            console.error(`Error rendering mob type ${entity.type}:`, error);
+        }
     }
 }

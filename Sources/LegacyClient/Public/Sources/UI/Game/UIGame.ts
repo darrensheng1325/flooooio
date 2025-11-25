@@ -26,7 +26,7 @@ import type BinaryReader from "../../Websocket/Binary/ReadWriter/Reader/BinaryRe
 import { Clientbound } from "../../Websocket/Packet/PacketOpcode";
 import { Biome, BIOME_DISPLAY_NAME, BIOME_GAUGE_COLORS } from "../../Native/Biome";
 import TileRenderer, { BIOME_TILESETS } from "../Shared/Tile/Tileset/TilesetRenderer";
-import { MobType } from "../../Native/Entity/EntityType";
+import { MobType, PetalType } from "../../Native/Entity/EntityType";
 
 let interpolatedMouseX = 0;
 let interpolatedMouseY = 0;
@@ -211,8 +211,16 @@ export default class UIGame extends AbstractUI {
 
             { // Read eliminated entities
                 const eliminatedEntitiesCount = reader.readVarUInt32();
+                
+                // Validate eliminated entities count
+                if (!Number.isFinite(eliminatedEntitiesCount) || eliminatedEntitiesCount < 0 || eliminatedEntitiesCount > 10000) {
+                    throw new Error(`Invalid eliminated entities count: ${eliminatedEntitiesCount}`);
+                }
 
                 for (let i = 0; i < eliminatedEntitiesCount; i++) {
+                    if (reader.isEOF()) {
+                        throw new Error(`Unexpected end of buffer while reading eliminated entity ${i + 1} of ${eliminatedEntitiesCount}`);
+                    }
                     const entityId = reader.readVarUInt32();
 
                     if (this.mobs.has(entityId)) {
@@ -244,9 +252,22 @@ export default class UIGame extends AbstractUI {
 
             { // Read lightning bounces
                 const lightningBouncesCount = reader.readVarUInt32();
+                
+                // Validate lightning bounces count
+                if (!Number.isFinite(lightningBouncesCount) || lightningBouncesCount < 0 || lightningBouncesCount > 1000) {
+                    throw new Error(`Invalid lightning bounces count: ${lightningBouncesCount}`);
+                }
 
                 for (let i = 0; i < lightningBouncesCount; i++) {
+                    if (reader.isEOF()) {
+                        throw new Error(`Unexpected end of buffer while reading lightning bounce ${i + 1}`);
+                    }
+                    
                     const positionsCount = reader.readVarUInt32();
+                    
+                    if (!Number.isFinite(positionsCount) || positionsCount < 0 || positionsCount > 100) {
+                        throw new Error(`Invalid positions count in lightning bounce: ${positionsCount}`);
+                    }
 
                     const bounce: LightningBounce = {
                         points: [],
@@ -268,11 +289,35 @@ export default class UIGame extends AbstractUI {
 
             { // Read entities
                 const entityCount = reader.readVarUInt32();
+                
+                // Validate entity count to prevent reading too many entities
+                if (!Number.isFinite(entityCount) || entityCount < 0 || entityCount > 10000) {
+                    throw new Error(`Invalid entity count: ${entityCount}`);
+                }
+
+                // Track the starting position for this entity list in case we need to validate
+                const entitiesStartPos = reader.at;
 
                 for (let i = 0; i < entityCount; i++) {
-                    const entityKind = reader.readUInt8() as EntityKind;
+                    // Store position before reading entity kind to help with debugging
+                    let entityStartPos = reader.at;
+                    
+                    try {
+                        // Check if we've run out of buffer before reading each entity
+                        if (reader.isEOF()) {
+                            console.warn(`Unexpected end of buffer while reading entity ${i + 1} of ${entityCount}, stopping packet processing`);
+                            throw new Error(`Unexpected end of buffer while reading entity ${i + 1} of ${entityCount}`);
+                        }
+                        
+                        const entityKind = reader.readUInt8() as EntityKind;
+                        
+                        // Validate entity kind - if invalid, buffer is definitely misaligned
+                        if (entityKind !== EntityKind.PLAYER && entityKind !== EntityKind.MOB && entityKind !== EntityKind.PETAL) {
+                            // Invalid entity kind means the buffer is misaligned - stop processing the entire packet
+                            throw new Error(`Invalid entity kind: ${entityKind} (expected 0, 1, or 2) at entity ${i + 1}, buffer position ${entityStartPos}. Buffer is misaligned, stopping packet processing.`);
+                        }
 
-                    switch (entityKind) {
+                        switch (entityKind) {
                         case EntityKind.PLAYER: {
                             const playerId = reader.readVarUInt32();
 
@@ -297,15 +342,25 @@ export default class UIGame extends AbstractUI {
                                 playerIsPoisoned = Boolean(bFlags & 4);
                             // Note: bit 8 (0x8) is "proper-damaged" but we don't use it client-side
 
-                            // Validate player data before processing
-                            if (isNaN(playerId) || isNaN(playerX) || isNaN(playerY) || 
-                                isNaN(playerHealth) || isNaN(playerSize) || !playerName) {
-                                console.warn("Invalid player data received, skipping");
-                                break;
+                            // Comprehensive validation of player data
+                            if (!Number.isFinite(playerId) || playerId < 0 || playerId > 0xFFFFFFFF ||
+                                !Number.isFinite(playerX) || !Number.isFinite(playerY) ||
+                                !Number.isFinite(playerAngle) ||
+                                !Number.isFinite(playerHealth) || playerHealth < 0 || playerHealth > 1000 ||
+                                !Number.isFinite(playerSize) || playerSize <= 0 || playerSize > 1000 ||
+                                typeof playerName !== 'string' || playerName.length === 0 || playerName.length > 100) {
+                                throw new Error(`Invalid player data (id: ${playerId}, name: ${playerName?.substring(0, 20)})`);
                             }
                             
                             const player = this.players.get(playerId);
                             if (player) {
+                                // Validate player instance before updating
+                                if (!(player instanceof Player)) {
+                                    console.warn(`Player with id ${playerId} is not a valid Player instance, removing`);
+                                    this.players.delete(playerId);
+                                    continue;
+                                }
+                                
                                 player.nx = playerX;
                                 player.ny = playerY;
 
@@ -402,16 +457,36 @@ export default class UIGame extends AbstractUI {
                                 mobConnectingSegment = this.mobs.get(connectingSegmentModId);
                             }
 
-                            // Validate mob data before processing
-                            if (isNaN(mobId) || isNaN(mobX) || isNaN(mobY) || 
-                                isNaN(mobHealth) || isNaN(mobSize) || 
-                                mobType === undefined || mobRarity === undefined) {
-                                console.warn("Invalid mob data received, skipping");
-                                break;
+                            // Comprehensive validation of mob data
+                            // Mobs should only accept mob types (0-25), not petal types (26-40)
+                            // Petal types should only be created in the PETAL case
+                            const isValidMobType = mobType >= 0 && mobType <= 25;
+                            const isPetalType = mobType >= 26 && mobType <= 40;
+                            
+                            // If we detect a petal type in a mob entity, the buffer is likely misaligned
+                            if (isPetalType) {
+                                throw new Error(`Invalid mob type: ${mobType} is a petal type, not a mob type. Buffer may be misaligned.`);
+                            }
+                            
+                            if (!Number.isFinite(mobId) || mobId < 0 || mobId > 0xFFFFFFFF ||
+                                !Number.isFinite(mobX) || !Number.isFinite(mobY) ||
+                                !Number.isFinite(mobAngle) ||
+                                !Number.isFinite(mobHealth) || mobHealth < 0 || mobHealth > 10000 ||
+                                !Number.isFinite(mobSize) || mobSize <= 0 || mobSize > 1000 ||
+                                !isValidMobType ||
+                                mobRarity === undefined || mobRarity < 0 || mobRarity >= 7) {
+                                throw new Error(`Invalid mob data: id=${mobId}, type=${mobType} (valid: ${isValidMobType}), rarity=${mobRarity}, x=${mobX}, y=${mobY}, health=${mobHealth}, size=${mobSize}`);
                             }
                             
                             let mob = this.mobs.get(mobId);
                             if (mob) {
+                                // Validate mob instance before updating
+                                if (!(mob instanceof Mob)) {
+                                    console.warn(`Mob with id ${mobId} is not a valid Mob instance, removing`);
+                                    this.mobs.delete(mobId);
+                                    continue;
+                                }
+                                
                                 mob.nx = mobX;
                                 mob.ny = mobY;
 
@@ -501,16 +576,57 @@ export default class UIGame extends AbstractUI {
 
                             const petalRarity = reader.readUInt8() as Rarity;
 
-                            // Validate petal data before processing
-                            if (isNaN(petalId) || isNaN(petalX) || isNaN(petalY) || 
-                                isNaN(petalHealth) || isNaN(petalSize) || 
-                                petalType === undefined || petalRarity === undefined) {
-                                console.warn("Invalid petal data received, skipping");
-                                break;
+                            // Read boolean flags (matching modern client)
+                            // Server writes: bit 1 = was_proper_damaged
+                            const petalBFlags = reader.readUInt8();
+                            // Note: We don't use was_proper_damaged client-side, but we must read the byte
+
+                            // Comprehensive validation of petal data
+                            // Note: Server sends petal types as 0-15 (Go enum), but TypeScript expects 26-40
+                            // Accept both ranges for compatibility
+                            // However, types 16-25 are mob types and should not appear in petal entities
+                            const isValidPetalTypeServer = petalType >= 0 && petalType <= 15; // Go server enum range
+                            const isValidPetalTypeClient = petalType >= 26 && petalType <= 40; // TypeScript enum range
+                            const isMobType = petalType >= 16 && petalType <= 25; // Mob types that should not be petals
+                            const isValidPetalType = isValidPetalTypeServer || isValidPetalTypeClient;
+                            
+                            // If we detect a mob type in a petal entity, the buffer is likely misaligned
+                            if (isMobType) {
+                                throw new Error(`Invalid petal type: ${petalType} is a mob type (MISSILE_PROJECTILE/WEB_PROJECTILE range), not a petal type. Buffer may be misaligned.`);
+                            }
+                            
+                            // Validate each field individually for better error messages
+                            if (!Number.isFinite(petalId) || petalId < 0 || petalId > 0xFFFFFFFF) {
+                                throw new Error(`Invalid petal id: ${petalId}`);
+                            }
+                            if (!Number.isFinite(petalX) || !Number.isFinite(petalY)) {
+                                throw new Error(`Invalid petal position: x=${petalX}, y=${petalY}`);
+                            }
+                            if (!Number.isFinite(petalAngle)) {
+                                throw new Error(`Invalid petal angle: ${petalAngle}`);
+                            }
+                            if (!Number.isFinite(petalHealth) || petalHealth < 0 || petalHealth > 10000) {
+                                throw new Error(`Invalid petal health: ${petalHealth}`);
+                            }
+                            if (!Number.isFinite(petalSize) || petalSize <= 0 || petalSize > 1000) {
+                                throw new Error(`Invalid petal size: ${petalSize}`);
+                            }
+                            if (!isValidPetalType) {
+                                throw new Error(`Invalid petal type: ${petalType} (expected 0-15 or 26-40)`);
+                            }
+                            if (petalRarity === undefined || petalRarity < 0 || petalRarity >= 7) {
+                                throw new Error(`Invalid petal rarity: ${petalRarity} (expected 0-6)`);
                             }
                             
                             const petal = this.mobs.get(petalId);
                             if (petal) {
+                                // Validate petal instance before updating
+                                if (!(petal instanceof Mob)) {
+                                    console.warn(`Petal with id ${petalId} is not a valid Mob instance, removing`);
+                                    this.mobs.delete(petalId);
+                                    continue;
+                                }
+                                
                                 petal.nx = petalX;
                                 petal.ny = petalY;
 
@@ -519,6 +635,7 @@ export default class UIGame extends AbstractUI {
                                 petal.nSize = petalSize;
 
                                 { // Update health properties
+                                    // Note: Modern client uses was_proper_damaged flag, but we use health comparison
                                     if (petalHealth < petal.nHealth) {
                                         petal.redHealthTimer = 1;
                                         petal.hurtT = 1;
@@ -566,6 +683,13 @@ export default class UIGame extends AbstractUI {
 
                             break;
                         }
+                        } // Close switch statement
+                    } catch (entityError) {
+                        // If reading an entity fails, the buffer is misaligned - stop processing immediately
+                        // We can't recover from buffer misalignment, so we must stop processing this packet
+                        console.error(`Error reading entity ${i + 1} of ${entityCount} at buffer position ${entityStartPos}, buffer misaligned. Stopping packet processing:`, entityError);
+                        // Re-throw to be caught by outer try-catch, which will stop processing the entire packet
+                        throw entityError;
                     }
                 }
             }
@@ -1164,14 +1288,29 @@ export default class UIGame extends AbstractUI {
         this.drawMutableFunctions(canvas);
 
         { // Update entities
+            // Cleanup corrupted entities first
+            const corruptedMobIds: number[] = [];
             this.mobs.forEach((mob, k) => {
-                // Skip invalid/corrupted entities
                 if (!mob || !(mob instanceof Mob)) {
-                    console.warn(`Removing invalid mob with id ${k}`);
-                    this.mobs.delete(k);
+                    corruptedMobIds.push(k);
                     return;
                 }
-                
+                // Validate mob properties
+                // Mobs should only have mob types (0-25), not petal types (26-40)
+                const isValidMobType = mob.type >= 0 && mob.type <= 25;
+                if (!Number.isFinite(mob.id) || !Number.isFinite(mob.x) || !Number.isFinite(mob.y) ||
+                    !Number.isFinite(mob.size) || mob.size <= 0 || mob.size > 1000 ||
+                    !isValidMobType) {
+                    corruptedMobIds.push(k);
+                    return;
+                }
+            });
+            corruptedMobIds.forEach(id => {
+                console.warn(`Removing corrupted mob with id ${id}`);
+                this.mobs.delete(id);
+            });
+            
+            this.mobs.forEach((mob, k) => {
                 mob.update();
 
                 if (
@@ -1192,14 +1331,27 @@ export default class UIGame extends AbstractUI {
                 }
             });
 
+            // Cleanup corrupted players first
+            const corruptedPlayerIds: number[] = [];
             this.players.forEach((player, k) => {
-                // Skip invalid/corrupted entities
                 if (!player || !(player instanceof Player)) {
-                    console.warn(`Removing invalid player with id ${k}`);
-                    this.players.delete(k);
+                    corruptedPlayerIds.push(k);
                     return;
                 }
-                
+                // Validate player properties
+                if (!Number.isFinite(player.id) || !Number.isFinite(player.x) || !Number.isFinite(player.y) ||
+                    !Number.isFinite(player.size) || player.size <= 0 || player.size > 1000 ||
+                    typeof player.name !== 'string' || player.name.length === 0) {
+                    corruptedPlayerIds.push(k);
+                    return;
+                }
+            });
+            corruptedPlayerIds.forEach(id => {
+                console.warn(`Removing corrupted player with id ${id}`);
+                this.players.delete(id);
+            });
+            
+            this.players.forEach((player, k) => {
                 player.update();
 
                 // Only remove when disconnected
