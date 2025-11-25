@@ -1,12 +1,12 @@
 /**
  * Mood bit flag.
- * 
+ *
  * @privateremarks
  * According to microsoft, enum name should be plural :).
  */
 export const enum MoodFlags {
-    ANGRY = 0,
-    SAD = 1,
+    ANGRY = 1,
+    SAD = 2,
 }
 
 export function decodeMood(flags: number) {

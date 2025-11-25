@@ -15,6 +15,10 @@ export type ColorCode = `#${string}${string}${string}`;
  * @param strength - Strenth
  */
 export const darkened = memo((color: ColorCode, strength: number): ColorCode => {
+    if (!color || typeof color !== 'string' || color.length < 7) {
+        console.warn("Invalid color code in darkened:", color);
+        return "#000000";
+    }
     let r = parseInt(color.slice(1, 3), 16);
     let g = parseInt(color.slice(3, 5), 16);
     let b = parseInt(color.slice(5, 7), 16);
@@ -33,6 +37,10 @@ export const darkened = memo((color: ColorCode, strength: number): ColorCode => 
  * @param strength - Strenth
  */
 export const lightened = memo((color: ColorCode, strength: number): ColorCode => {
+    if (!color || typeof color !== 'string' || color.length < 7) {
+        console.warn("Invalid color code in lightened:", color);
+        return "#ffffff";
+    }
     let r = parseInt(color.slice(1, 3), 16);
     let g = parseInt(color.slice(3, 5), 16);
     let b = parseInt(color.slice(5, 7), 16);

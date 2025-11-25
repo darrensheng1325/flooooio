@@ -7,11 +7,12 @@ import { optimize } from "svgo";
 
 const prebuildedFileName = "./prebuilded-" + Date.now() + ".js";
 
-async function build(isWatch) {
-    const obfuscateEnabled = await confirm({
-        message: "Obfuscate bundled javascript?",
-        default: false,
-    });
+// Check if running in non-interactive mode (CI, automated builds, etc.)
+const isNonInteractive = process.env.CI === "true" || 
+                         process.env.NON_INTERACTIVE === "true" ||
+                         !process.stdin.isTTY;
+
+async function build(isWatch, obfuscateEnabled = false) {
 
     const ctx = await esbuild.context({
         entryPoints: ["./Sources/LegacyClient/Application.ts"],
@@ -90,12 +91,27 @@ async function build(isWatch) {
 }
 
 async function main() {
-    const watchMode = await confirm({
-        message: "Enable watch mode?",
-        default: false,
-    });
+    let watchMode = false;
+    let obfuscateEnabled = false;
 
-    await build(watchMode);
+    if (isNonInteractive) {
+        // Non-interactive mode: use defaults or environment variables
+        watchMode = process.env.WATCH === "true";
+        obfuscateEnabled = process.env.OBFUSCATE === "true";
+    } else {
+        // Interactive mode: prompt user
+        watchMode = await confirm({
+            message: "Enable watch mode?",
+            default: false,
+        });
+
+        obfuscateEnabled = await confirm({
+            message: "Obfuscate bundled javascript?",
+            default: false,
+        });
+    }
+
+    await build(watchMode, obfuscateEnabled);
 }
 
 main();

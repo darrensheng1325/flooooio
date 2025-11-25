@@ -76,8 +76,8 @@ export default class StaticText extends Component<ClipboardEvents> {
             const computedCopySource = Component.computePointerLike(copySource);
 
             navigator.clipboard.writeText(computedCopySource).then(
-                () => this.emit("onCopySucceed"),
-                () => this.emit("onCopyFailed"),
+                () => this.emit("onCopySucceed" as any),
+                () => this.emit("onCopyFailed" as any),
             );
         });
     }

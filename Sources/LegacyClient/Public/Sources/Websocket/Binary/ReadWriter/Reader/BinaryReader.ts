@@ -29,7 +29,14 @@ export default class BinaryReader {
         return this.at >= this.buffer.byteLength;
     }
 
+    private checkBounds(bytesNeeded: number): void {
+        if (this.at + bytesNeeded > this.buffer.byteLength) {
+            throw new Error(`Read out of bounds: need ${bytesNeeded} bytes but only ${this.buffer.byteLength - this.at} available`);
+        }
+    }
+
     public readBytes(length: number): Uint8Array {
+        this.checkBounds(length);
         const slice = this.buffer.slice(this.at, this.at + length);
 
         this.at += length;
@@ -38,6 +45,7 @@ export default class BinaryReader {
     }
 
     public readUInt8(): number {
+        this.checkBounds(1);
         return this.buffer[this.at++];
     }
 
@@ -84,13 +92,17 @@ export default class BinaryReader {
     }
 
     public readFloat32(): number {
-        byteArray.set(this.buffer.subarray(this.at, this.at += 4));
+        this.checkBounds(4);
+        byteArray.set(this.buffer.subarray(this.at, this.at + 4));
+        this.at += 4;
 
         return float32Array[0];
     }
 
     public readFloat64(): number {
-        byteArray.set(this.buffer.subarray(this.at, this.at += 8));
+        this.checkBounds(8);
+        byteArray.set(this.buffer.subarray(this.at, this.at + 8));
+        this.at += 8;
 
         return float64Array[0];
     }
@@ -105,8 +117,13 @@ export default class BinaryReader {
 
     public readVarUInt64(): bigint {
         let result = 0n;
+        let shift = 0;
 
-        for (let shift = 0; shift < 64; shift += 7) {
+        while (shift < 64) {
+            if (this.isEOF()) {
+                throw new Error("Unexpected end of buffer while reading variable-length integer");
+            }
+            
             const byte = BigInt(this.readUInt8());
 
             result |= (0x7fn & byte) << BigInt(shift);
@@ -114,6 +131,12 @@ export default class BinaryReader {
             if (0x0n === (0x80n & byte)) {
                 break;
             }
+
+            shift += 7;
+        }
+
+        if (shift >= 64) {
+            throw new Error("Variable-length integer exceeds 64 bits");
         }
 
         return result;
@@ -144,12 +167,10 @@ export default class BinaryReader {
     public readString(): string {
         const startPos = this.at;
         let length = 0;
+        const maxLength = this.buffer.byteLength - startPos;
 
-        while (true) {
+        while (length < maxLength) {
             const pos = startPos + length;
-            if (pos >= this.buffer.byteLength) {
-                throw new Error("Invalid string: Out of range");
-            }
             
             if (this.buffer[pos] === 0) {
                 break;
@@ -158,10 +179,22 @@ export default class BinaryReader {
             length++;
         }
 
+        if (length >= maxLength) {
+            // No null terminator found, return empty string or throw
+            console.warn("String read without null terminator, returning empty string");
+            this.at = this.buffer.byteLength; // Advance to end to prevent further reads
+            return "";
+        }
+
         const bytes = this.readBytes(length);
 
         this.readUInt8(); // Skip null terminator
 
-        return textDecoder.decode(bytes);
+        try {
+            return textDecoder.decode(bytes);
+        } catch (error) {
+            console.error("Error decoding string:", error);
+            return ""; // Return empty string on decode error
+        }
     }
 }

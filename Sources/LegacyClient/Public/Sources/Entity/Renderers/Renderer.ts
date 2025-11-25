@@ -179,7 +179,13 @@ export default class Renderer<T extends Entity> {
             } else if (entity instanceof Mob) {
                 lineWidth = 6.5;
 
-                const { collision: { radius, fraction } }: MobData = MOB_PROFILES[entity.type];
+                const mobProfile: MobData | undefined = MOB_PROFILES[entity.type];
+                if (!mobProfile || !mobProfile.collision) {
+                    // Mob type not found in profiles, skip HP bar rendering
+                    return;
+                }
+
+                const { collision: { radius, fraction } } = mobProfile;
 
                 const scale = (entity.size * radius) / (15 * fraction);
 

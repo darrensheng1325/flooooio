@@ -54,8 +54,17 @@ export default class ClientWebsocket {
                 return;
             }
 
-            data = new Uint8Array(data);
-            this.packetClientbound.read(data);
+            try {
+                data = new Uint8Array(data);
+                this.packetClientbound.read(data);
+            } catch (error) {
+                console.error("Error processing packet:", error);
+                // Continue processing other packets even if one fails
+            }
+        });
+
+        this.socket.addEventListener("error", (error) => {
+            console.error("WebSocket error:", error);
         });
     }
 

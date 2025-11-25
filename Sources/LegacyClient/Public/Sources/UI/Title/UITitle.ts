@@ -153,7 +153,7 @@ export default class UITitle extends AbstractUI {
 
     override readonly CLIENTBOUND_HANDLERS = {
         [Clientbound.WAVE_ROOM_SELF_ID]: (reader: BinaryReader): void => {
-            this.waveRoomSelfId = reader.readUInt32();
+            this.waveRoomSelfId = reader.readVarUInt32();
         },
         [Clientbound.WAVE_ROOM_UPDATE]: (reader: BinaryReader): void => {
             { // Read player informations
@@ -162,7 +162,7 @@ export default class UITitle extends AbstractUI {
                 const informations: Array<WaveRoomPlayerInformation> = new Array(waveClientCount);
 
                 for (let i = 0; i < waveClientCount; i++) {
-                    const id = reader.readUInt32();
+                    const id = reader.readVarUInt32();
 
                     const name = reader.readString() || "Unnamed";
 
@@ -898,13 +898,13 @@ export default class UITitle extends AbstractUI {
                         }, RESET_DELAY);
                     };
 
-                    codeText.addListener("onCopySucceed", () => {
+                    codeText.addListener("onCopySucceed" as any, () => {
                         tooltipLabel = "Copied!";
 
                         resetTooltip();
                     });
 
-                    codeText.addListener("onCopyFailed", () => {
+                    codeText.addListener("onCopyFailed" as any, () => {
                         tooltipLabel = "Failed...";
 
                         resetTooltip();

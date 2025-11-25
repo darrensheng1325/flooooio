@@ -64,7 +64,11 @@ export abstract class AbstractStaticContainer<T extends SelectableStaticContaine
         this.layoutCache.invalidate();
 
         // Invalidate children layout cache too
-        this.children.forEach(child => child.invalidateLayoutCache());
+        this.children.forEach(child => {
+            if (child) {
+                child.invalidateLayoutCache();
+            }
+        });
     }
 
     override setVisible(
@@ -1067,6 +1071,10 @@ export class StaticScrollableContainer<Child extends Components = Components> ex
             let currentY = -this.currentScrollY;
 
             this.children.forEach(child => {
+                if (!child) {
+                    console.warn("Null child in container render");
+                    return;
+                }
                 // Scroll can very very consume memory, so just simply use layout
                 const childLayout = child.layout({
                     ctx,

@@ -19,23 +19,38 @@ export default class PacketClientbound {
     ) { }
 
     public read(data: ReadableDataType) {
-        const reader = new BinaryReader(data);
+        try {
+            const reader = new BinaryReader(data);
 
-        const opcode = reader.readUInt8() satisfies Clientbound;
-
-        const listen = this.computeAdheredClientboundHandlers(this.adheredClientboundHandlers);
-        if (listen.hasOwnProperty(opcode)) {
-            listen[opcode](reader);
-
-            return;
-        }
-
-        switch (opcode) {
-            case Clientbound.CONNECTION_KICKED: {
-                this.readPacketConnectionKick(reader);
-
-                break;
+            if (reader.isEOF()) {
+                console.warn("Received empty packet");
+                return;
             }
+
+            const opcode = reader.readUInt8() satisfies Clientbound;
+
+            const listen = this.computeAdheredClientboundHandlers(this.adheredClientboundHandlers);
+            if (listen.hasOwnProperty(opcode)) {
+                try {
+                    listen[opcode](reader);
+                } catch (error) {
+                    console.error(`Error handling packet opcode ${opcode}:`, error);
+                }
+                return;
+            }
+
+            switch (opcode) {
+                case Clientbound.CONNECTION_KICKED: {
+                    this.readPacketConnectionKick(reader);
+                    break;
+                }
+                default: {
+                    console.warn(`Unknown packet opcode: ${opcode}`);
+                }
+            }
+        } catch (error) {
+            console.error("Error reading packet:", error);
+            throw error; // Re-throw to be caught by caller
         }
     }
 

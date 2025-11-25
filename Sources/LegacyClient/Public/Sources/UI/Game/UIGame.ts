@@ -179,11 +179,12 @@ export default class UIGame extends AbstractUI {
 
     override readonly CLIENTBOUND_HANDLERS = {
         [Clientbound.WAVE_SELF_ID]: (reader: BinaryReader): void => {
-            this.waveSelfId = reader.readUInt32();
+            this.waveSelfId = reader.readVarUInt32();
         },
         [Clientbound.WAVE_UPDATE]: (reader: BinaryReader): void => {
-            { // Wave informations
-                const waveProgress = reader.readUInt16();
+            try {
+                { // Wave informations
+                    const waveProgress = reader.readVarUInt32();
 
                 const waveProgressTimer = reader.readFloat32();
 
@@ -192,7 +193,7 @@ export default class UIGame extends AbstractUI {
                 const waveEnded = reader.readBoolean();
 
                 // World size
-                const waveMapRadius = reader.readUInt16();
+                const waveMapRadius = reader.readVarUInt32();
 
                 this.waveProgress = waveProgress;
 
@@ -209,10 +210,10 @@ export default class UIGame extends AbstractUI {
             }
 
             { // Read eliminated entities
-                const eliminatedEntitiesCount = reader.readUInt16();
+                const eliminatedEntitiesCount = reader.readVarUInt32();
 
                 for (let i = 0; i < eliminatedEntitiesCount; i++) {
-                    const entityId = reader.readUInt32();
+                    const entityId = reader.readVarUInt32();
 
                     if (this.mobs.has(entityId)) {
                         const mob = this.mobs.get(entityId);
@@ -242,10 +243,10 @@ export default class UIGame extends AbstractUI {
             }
 
             { // Read lightning bounces
-                const lightningBouncesCount = reader.readUInt16();
+                const lightningBouncesCount = reader.readVarUInt32();
 
                 for (let i = 0; i < lightningBouncesCount; i++) {
-                    const positionsCount = reader.readUInt16();
+                    const positionsCount = reader.readVarUInt32();
 
                     const bounce: LightningBounce = {
                         points: [],
@@ -266,14 +267,14 @@ export default class UIGame extends AbstractUI {
             }
 
             { // Read entities
-                const entityCount = reader.readUInt16();
+                const entityCount = reader.readVarUInt32();
 
                 for (let i = 0; i < entityCount; i++) {
                     const entityKind = reader.readUInt8() as EntityKind;
 
                     switch (entityKind) {
                         case EntityKind.PLAYER: {
-                            const playerId = reader.readUInt32();
+                            const playerId = reader.readVarUInt32();
 
                             const playerX = reader.readFloat32();
                             const playerY = reader.readFloat32();
@@ -294,7 +295,15 @@ export default class UIGame extends AbstractUI {
                             const playerIsDead = Boolean(bFlags & 1),
                                 playerIsDev = Boolean(bFlags & 2),
                                 playerIsPoisoned = Boolean(bFlags & 4);
+                            // Note: bit 8 (0x8) is "proper-damaged" but we don't use it client-side
 
+                            // Validate player data before processing
+                            if (isNaN(playerId) || isNaN(playerX) || isNaN(playerY) || 
+                                isNaN(playerHealth) || isNaN(playerSize) || !playerName) {
+                                console.warn("Invalid player data received, skipping");
+                                break;
+                            }
+                            
                             const player = this.players.get(playerId);
                             if (player) {
                                 player.nx = playerX;
@@ -361,7 +370,7 @@ export default class UIGame extends AbstractUI {
                         }
 
                         case EntityKind.MOB: {
-                            const mobId = reader.readUInt32();
+                            const mobId = reader.readVarUInt32();
 
                             const mobX = reader.readFloat32();
                             const mobY = reader.readFloat32();
@@ -383,15 +392,24 @@ export default class UIGame extends AbstractUI {
                                 mobIsFirstSegment = Boolean(bFlags & 2),
                                 mobHasConnectingSegment = Boolean(bFlags & 4),
                                 mobIsPoisoned = Boolean(bFlags & 8);
+                            // Note: bit 16 (0x10) is "proper-damaged" but we don't use it client-side
 
                             let mobConnectingSegment: Mob = null;
 
                             if (mobHasConnectingSegment) {
-                                const connectingSegmentModId = reader.readUInt32();
+                                const connectingSegmentModId = reader.readVarUInt32();
 
                                 mobConnectingSegment = this.mobs.get(connectingSegmentModId);
                             }
 
+                            // Validate mob data before processing
+                            if (isNaN(mobId) || isNaN(mobX) || isNaN(mobY) || 
+                                isNaN(mobHealth) || isNaN(mobSize) || 
+                                mobType === undefined || mobRarity === undefined) {
+                                console.warn("Invalid mob data received, skipping");
+                                break;
+                            }
+                            
                             let mob = this.mobs.get(mobId);
                             if (mob) {
                                 mob.nx = mobX;
@@ -468,7 +486,7 @@ export default class UIGame extends AbstractUI {
                         }
 
                         case EntityKind.PETAL: {
-                            const petalId = reader.readUInt32();
+                            const petalId = reader.readVarUInt32();
 
                             const petalX = reader.readFloat32();
                             const petalY = reader.readFloat32();
@@ -483,6 +501,14 @@ export default class UIGame extends AbstractUI {
 
                             const petalRarity = reader.readUInt8() as Rarity;
 
+                            // Validate petal data before processing
+                            if (isNaN(petalId) || isNaN(petalX) || isNaN(petalY) || 
+                                isNaN(petalHealth) || isNaN(petalSize) || 
+                                petalType === undefined || petalRarity === undefined) {
+                                console.warn("Invalid petal data received, skipping");
+                                break;
+                            }
+                            
                             const petal = this.mobs.get(petalId);
                             if (petal) {
                                 petal.nx = petalX;
@@ -543,12 +569,18 @@ export default class UIGame extends AbstractUI {
                     }
                 }
             }
-            
-            // Send ack
-            clientWebsocket.packetServerbound.sendAck([
-                this.canvas.width / uiScaleFactor + 500,
-                this.canvas.height / uiScaleFactor + 500,
-            ]);
+                
+                // Send ack
+                clientWebsocket.packetServerbound.sendAck([
+                    this.canvas.width / uiScaleFactor + 500,
+                    this.canvas.height / uiScaleFactor + 500
+                ]);
+            } catch (error) {
+                console.error("Error reading WAVE_UPDATE packet, stopping processing to prevent corruption:", error);
+                // Don't process the rest of the packet if there's an error
+                // This prevents misaligned reads that would create corrupted entities
+                return;
+            }
         },
         [Clientbound.WAVE_CHAT_RECEIV]: (reader: BinaryReader): void => {
             const lines = reader.readString();
@@ -1106,7 +1138,17 @@ export default class UIGame extends AbstractUI {
         const centerHeight = heightRelative / 2;
 
         const selfPlayer = this.players.get(this.waveSelfId);
-        if (!selfPlayer) return;
+        if (!selfPlayer) {
+            // Render loading state when player data hasn't been received yet
+            ctx.fillStyle = "#181818";
+            ctx.fillRect(0, 0, widthRelative, heightRelative);
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "24px sans-serif";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText("Loading...", centerWidth, centerHeight);
+            return;
+        }
 
         // Render map
         this.tilesetRenderer.renderGameTileset({
@@ -1123,6 +1165,13 @@ export default class UIGame extends AbstractUI {
 
         { // Update entities
             this.mobs.forEach((mob, k) => {
+                // Skip invalid/corrupted entities
+                if (!mob || !(mob instanceof Mob)) {
+                    console.warn(`Removing invalid mob with id ${k}`);
+                    this.mobs.delete(k);
+                    return;
+                }
+                
                 mob.update();
 
                 if (
@@ -1144,6 +1193,13 @@ export default class UIGame extends AbstractUI {
             });
 
             this.players.forEach((player, k) => {
+                // Skip invalid/corrupted entities
+                if (!player || !(player instanceof Player)) {
+                    console.warn(`Removing invalid player with id ${k}`);
+                    this.players.delete(k);
+                    return;
+                }
+                
                 player.update();
 
                 // Only remove when disconnected
@@ -1181,7 +1237,14 @@ export default class UIGame extends AbstractUI {
                     entity.y <= y1
                 );
 
-                for (const [, mob] of this.mobs) {
+                for (const [id, mob] of this.mobs) {
+                    // Validate mob before adding to viewport
+                    if (!mob || !(mob instanceof Mob)) {
+                        console.warn(`Removing invalid mob with id ${id} during rendering`);
+                        this.mobs.delete(id);
+                        continue;
+                    }
+                    
                     if (isInViewport(mob)) {
                         if (isPetal(mob.type)) {
                             viewportEntities.push(mob);
@@ -1193,7 +1256,14 @@ export default class UIGame extends AbstractUI {
                     }
                 }
 
-                for (const [, player] of this.players) {
+                for (const [id, player] of this.players) {
+                    // Validate player before adding to viewport
+                    if (!player || !(player instanceof Player)) {
+                        console.warn(`Removing invalid player with id ${id} during rendering`);
+                        this.players.delete(id);
+                        continue;
+                    }
+                    
                     if (isInViewport(player)) {
                         viewportEntities.push(player);
                     }
@@ -1230,7 +1300,13 @@ export default class UIGame extends AbstractUI {
                 }
             };
 
-            const entitiesToDraw = getEntitiesInViewport();
+            const entitiesToDraw = getEntitiesInViewport().filter(entity => {
+                // Final validation before rendering
+                if (!entity || (!(entity instanceof Player) && !(entity instanceof Mob))) {
+                    return false;
+                }
+                return true;
+            });
 
             ctx.save();
 
